@@ -1,0 +1,255 @@
+# Question 1
+
+!apt-get install ffmpeg freeglut3-dev xvfb  # For visualization
+!pip install stable-baselines3[extra]
+
+import math
+import random
+import time
+import gym
+import numpy as np
+import tensorflow as tf
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+from torch.distributions import Categorical
+from stable_baselines3 import PPO, A2C
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.evaluation import evaluate_policy
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+from stable_baselines3.common.utils import set_random_seed
+import matplotlib.pyplot as plt
+%matplotlib inline
+
+use_cuda = torch.cuda.is_available()
+device   = torch.device("cuda" if use_cuda else "cpu")
+
+%load_ext tensorboard
+
+from stable_baselines3.ppo import MlpPolicy
+
+env = gym.make('CartPole-v1')
+
+model = A2C(MlpPolicy, env, verbose=0,tensorboard_log="/a2c_cartpole_tensorboard/1")
+
+# Use a separate environement for evaluation
+eval_env = gym.make('CartPole-v1')
+
+# Random Agent, before training
+mean_reward, std_reward = evaluate_policy(model, eval_env, n_eval_episodes=100)
+
+print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
+
+# Train the agent for 10000 steps
+model.learn(total_timesteps=10000)
+
+tensorboard --logdir /a2c_cartpole_tensorboard/1
+
+# Evaluate the trained agent
+mean_reward, std_reward = evaluate_policy(model, eval_env, n_eval_episodes=100)
+
+print(f"mean_reward:{mean_reward:.2f} +/- {std_reward:.2f}")
+
+
+import os
+os.system("Xvfb :1 -screen 0 1024x768x24 &")
+os.environ['DISPLAY'] = ':1'
+
+
+import base64
+from pathlib import Path
+
+from IPython import display as ipythondisplay
+
+def show_videos(video_path='', prefix=''):
+  """
+  Taken from https://github.com/eleurent/highway-env
+
+  :param video_path: (str) Path to the folder containing videos
+  :param prefix: (str) Filter the video, showing only the only starting with this prefix
+  """
+  html = []
+  for mp4 in Path(video_path).glob("{}*.mp4".format(prefix)):
+      video_b64 = base64.b64encode(mp4.read_bytes())
+      html.append('''<video alt="{}" autoplay 
+                    loop controls style="height: 400px;">
+                    <source src="data:video/mp4;base64,{}" type="video/mp4" />
+                </video>'''.format(mp4, video_b64.decode('ascii')))
+  ipythondisplay.display(ipythondisplay.HTML(data="<br>".join(html)))
+  
+  
+  from stable_baselines3.common.vec_env import VecVideoRecorder, DummyVecEnv
+
+def record_video(env_id, model, video_length=500, prefix='', video_folder='videos/'):
+  """
+  :param env_id: (str)
+  :param model: (RL model)
+  :param video_length: (int)
+  :param prefix: (str)
+  :param video_folder: (str)
+  """
+  eval_env = DummyVecEnv([lambda: gym.make('CartPole-v1')])
+  # Start the video at step=0 and record 500 steps
+  eval_env = VecVideoRecorder(eval_env, video_folder=video_folder,
+                              record_video_trigger=lambda step: step == 0, video_length=video_length,
+                              name_prefix=prefix)
+
+  obs = eval_env.reset()
+  for _ in range(video_length):
+    action, _ = model.predict(obs)
+    obs, _, _, _ = eval_env.step(action)
+
+  # Close the video recorder
+  eval_env.close()
+  
+record_video('CartPole-v1', model, video_length=500, prefix='A2C-cartpole')
+
+show_videos('videos', prefix='A2C')
+
+# Question 2
+
+def make_env(env_id, rank, seed=0):
+    """
+    Utility function for multiprocessed env.
+    
+    :param env_id: (str) the environment ID
+    :param seed: (int) the inital seed for RNG
+    :param rank: (int) index of the subprocess
+    """
+    def _init():
+        env = gym.make(env_id)
+        # Important: use a different seed for each environment
+        env.seed(seed + rank)
+        return env
+    set_random_seed(seed)
+    return _init
+    
+    
+    
+
+env_id = 'CartPole-v1'
+# The different number of processes that will be used
+PROCESSES_TO_TEST = [1, 2, 4, 8, 16,32,64,128] 
+NUM_EXPERIMENTS = 3 # RL algorithms can often be unstable, so we run several experiments (see https://arxiv.org/abs/1709.06560)
+TRAIN_STEPS = 5000
+# Number of episodes for evaluation
+EVAL_EPS = 20
+ALGO = A2C
+
+# We will create one environment to evaluate the agent on
+eval_env = gym.make(env_id)
+  
+  
+reward_averages = []
+reward_std = []
+training_times = []
+total_procs = 0
+for n_procs in PROCESSES_TO_TEST:
+    total_procs += n_procs
+    print('Running for n_procs = {}'.format(n_procs))
+    if n_procs == 1:
+        # if there is only one process, there is no need to use multiprocessing
+        train_env = DummyVecEnv([lambda: gym.make(env_id)])
+    else:
+        # Here we use the "fork" method for launching the processes, more information is available in the doc
+        # This is equivalent to make_vec_env(env_id, n_envs=n_procs, vec_env_cls=SubprocVecEnv, vec_env_kwargs=dict(start_method='fork'))
+        train_env = SubprocVecEnv([make_env(env_id, i+total_procs) for i in range(n_procs)], start_method='fork')
+
+    rewards = []
+    times = []
+
+    for experiment in range(NUM_EXPERIMENTS):
+        # it is recommended to run several experiments due to variability in results
+        train_env.reset()
+        model = ALGO('MlpPolicy', train_env, verbose=0)
+        start = time.time()
+        model.learn(total_timesteps=TRAIN_STEPS)
+        times.append(time.time() - start)
+        mean_reward, _  = evaluate_policy(model, eval_env, n_eval_episodes=EVAL_EPS)
+        rewards.append(mean_reward)
+    # Important: when using subprocess, don't forget to close them
+    # otherwise, you may have memory issues when running a lot of experiments
+    train_env.close()
+    reward_averages.append(np.mean(rewards))
+    reward_std.append(np.std(rewards))
+    training_times.append(np.mean(times))
+ 
+ 
+ 
+
+training_steps_per_second = [TRAIN_STEPS / t for t in training_times]
+
+plt.figure(figsize=(9, 4))
+plt.subplots_adjust(wspace=0.5)
+plt.subplot(1, 2, 1)
+plt.errorbar(PROCESSES_TO_TEST, reward_averages, yerr=reward_std, capsize=2)
+plt.xlabel('Processes')
+plt.ylabel('Average return')
+plt.subplot(1, 2, 2)
+plt.bar(range(len(PROCESSES_TO_TEST)), training_steps_per_second)
+plt.xticks(range(len(PROCESSES_TO_TEST)), PROCESSES_TO_TEST)
+plt.xlabel('Processes')
+_ = plt.ylabel('Training steps per second')
+
+# When we increase the number of workers, the average get close to the true return and the variance become smaller.
+
+# The training steps always increse but the first half increases faster and the second half increases slower. 
+
+
+
+
+# Question 3
+
+env = gym.make('CartPole-v1')
+
+model_vanilla = A2C(MlpPolicy, env, verbose=0, gae_lambda=0,n_steps=1, tensorboard_log="/a2c_cartpole_tensorboard/vanilla")
+model_one =A2C(MlpPolicy, env, verbose=0, gae_lambda=0, n_steps=5, tensorboard_log="/a2c_cartpole_tensorboard/one")
+model_two = A2C(MlpPolicy, env, verbose=0, gae_lambda=0, n_steps=10, tensorboard_log="/a2c_cartpole_tensorboard/two")
+model_three = A2C(MlpPolicy, env, verbose=0, gae_lambda=0, n_steps=15, tensorboard_log="/a2c_cartpole_tensorboard/three")
+
+
+model_list=[model_vanilla,model_one,model_two,model_three]
+
+# Use a separate environement for evaluation
+eval_env = gym.make('CartPole-v1')
+
+# Random Agent, before training
+mean_reward_list = []
+std_reward_list = []
+for i in model_list:
+  mean_reward, std_reward = evaluate_policy(i, eval_env, n_eval_episodes=100)
+  mean_reward_list.append(mean_reward)
+  std_reward_list.append(std_reward)
+
+print('mean_reward when n_step goes up', mean_reward_list)
+print('std_reward when n_step goes up',std_reward_list)
+
+
+# Train the agent for 10000 steps
+
+for i in model_list:
+  i.learn(total_timesteps=10000)
+  
+  
+  
+# Evaluate the trained agent
+trained_mean_reward=[]
+trained_std_reward=[]
+for i in model_list:
+  mean_reward, std_reward = evaluate_policy(i, eval_env, n_eval_episodes=100)
+  trained_mean_reward.append(mean_reward)
+  trained_std_reward.append(std_reward)
+
+print('after training, when the n_steps goes up, the mean reward is ', trained_mean_reward)
+print('after training, when the n_steps goes up, the std of reward is ',trained_std_reward)
+
+#The n_step take effect when we train the model, when the n_step goes up, the total reward becomes higher.
+
+
+
+  
+  
+  
+  
+
