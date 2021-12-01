@@ -117,6 +117,8 @@ show_video()
 
 >## An Example
 
+
+![](logo.png)
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1nXXYVp0oEExxSGWvscic887sPOFp1l7e?usp=sharing)
 
 
