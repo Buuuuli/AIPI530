@@ -117,9 +117,10 @@ show_video()
 
 >## An Example
 
-Use DQN to play the cartpole game
+Use DQN to play the cartpole game_
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1nXXYVp0oEExxSGWvscic887sPOFp1l7e?usp=sharing)_
 ![](9170409d-15f1-453b-816a-6f601a89fcf2.png)
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1nXXYVp0oEExxSGWvscic887sPOFp1l7e?usp=sharing)
+
 
 
 
