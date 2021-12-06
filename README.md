@@ -1,6 +1,6 @@
 ># Offline Deep Reinforcement Learning 
 
-This repository contains the final project of AIPI 530 taht uses the d3rlpy
+This repository contains the final project of AIPI 530 that uses the d3rlpy
 
 ![](logo.png)
 
@@ -123,5 +123,6 @@ Use DQN to play the cartpole game<br />
 
 
 
-
+>## Citation
+>https://github.com/takuseno/d3rlpy
 
